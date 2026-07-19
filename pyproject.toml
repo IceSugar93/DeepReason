@@ -1,0 +1,46 @@
+[project]
+name = "deepreason"
+version = "0.1.0"
+description = "Multi-Agent self-correcting reasoning engine with debate architecture and Reflexion loop"
+requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "MIT"}
+
+dependencies = [
+    "langgraph>=0.3",
+    "langchain-core>=0.3",
+    "openai>=1.50",
+    "pymilvus>=2.5",
+    "sentence-transformers>=3.0",
+    "FlagEmbedding>=1.2",
+    "mcp>=1.0",
+    "ragas>=0.2",
+    "fastapi>=0.110",
+    "uvicorn>=0.30",
+    "pydantic>=2.0",
+    "pdfplumber>=0.11",
+    "beautifulsoup4>=4.12",
+    "jieba>=0.42",
+    "arxiv>=2.1",
+    "httpx>=0.27",
+    "rich>=13.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
