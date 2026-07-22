@@ -1,0 +1,72 @@
+[
+  {
+    "id": "q001",
+    "question": "LLM Agent的工具使用能力从单工具调用到多工具编排经历了怎样的范式转变？当前多工具编排研究围绕哪六个核心维度展开？",
+    "ground_truth": "范式转变：早期研究（TALM、Toolformer、ReAct）关注模型能否选择和执行单个正确的工具调用；随着Agent系统演进，核心问题从孤立的单点调用转变为长序列多工具编排，涉及中间状态、执行反馈、动态环境和安全/成本/可验证性等约束。六个核心维度为：1）推理时规划与执行（Inference-time Planning and Execution）；2）训练与轨迹构建（Training and Trajectory Construction）；3）安全与控制（Safety and Control）；4）资源约束下的效率（Efficiency under Resource Constraints）；5）开放环境中的能力完备性（Capability Completeness in Open Environments）；6）基准设计与评估（Benchmark Design and Evaluation）。",
+    "difficulty": "复杂",
+    "source": "paper/2603.22862v2"
+  },
+  {
+    "id": "q002",
+    "question": "在L-MAD（Legal Multi-Agent Debate）框架中，增加辩论Agent数量和增加辩论轮数分别对推理准确性有什么不同的影响？什么是'过度辩论漂移'现象？",
+    "ground_truth": "L-MAD实验发现两者存在明显的权衡：1）增加Agent数量（扩大辩论群体）可以减少不一致性并提高准确性，因为更多独立的推理路径通过投票/共识机制增强了决策的鲁棒性；2）但增加辩论轮数会导致'过度辩论漂移'（over-deliberation drift），即Agent在多轮讨论后开始附和并强化彼此的错误，最终反而降低性能。此外，最佳辩论策略取决于底层模型的能力：对高能力模型（30B+参数），强制共识策略效果好；对小模型（8B参数），独立投票更能防止肤浅一致性。",
+    "difficulty": "中等",
+    "source": "paper/2607.09099v1"
+  },
+  {
+    "id": "q003",
+    "question": "RAG-Star框架如何将蒙特卡洛树搜索（MCTS）与检索增强生成（RAG）结合来提高LLM的多步推理能力？",
+    "ground_truth": "RAG-Star通过以下方式结合MCTS和RAG：1）以MCTS迭代规划中间子查询及其答案，从输入问题（根节点）出发，基于LLM自身知识生成并选择最优子查询路径；2）引入检索增强验证机制（retrieval-augmented verification），使用查询感知和答案感知的奖励模型对LLM的推理过程提供反馈，融合内部知识和外部检索信息；3）将完整的规划表示为子查询与对应答案的序列，逐步探索通向最终答案的最优子查询路径，而非直接提供答案。该方法在Llama-3.1-8B和GPT-4o上均显著优于已有的RAG和推理方法。",
+    "difficulty": "复杂",
+    "source": "paper/2412.12881v1"
+  },
+  {
+    "id": "q004",
+    "question": "在自动文献综述生成任务中，基于频率的spaCy方法、基于Transformer的T5模型和基于RAG的GPT-3.5方法各有什么优劣？哪种方法表现最好？",
+    "ground_truth": "三种方法在SciTLDR数据集上的对比结果：1）基于频率的spaCy方法实现最简单但效果最差，缺乏语义理解能力；2）基于Transformer的Simple T5模型表现居中，具有一定的文本理解和生成能力；3）基于RAG的GPT-3.5-turbo方法表现最好，ROUGE-1得分达到0.364，因为它能检索相关文献并结合LLM的生成能力。评价指标为ROUGE分数。最终选择GPT-3.5-turbo构建了带图形界面的自动文献综述系统。",
+    "difficulty": "简单",
+    "source": "paper/2411.18583v1"
+  },
+  {
+    "id": "q005",
+    "question": "AsyncLM提出的异步LLM函数调用机制是如何工作的？它相比同步函数调用有什么优势和实现挑战？",
+    "ground_truth": "AsyncLM核心机制是可中断的LLM解码（interruptible LLM decoding）：1）LLM生成函数调用后不阻塞等待结果，而是继续生成后续token；2）当函数调用完成时，executor通过向LLM的token生成流中注入interrupt token来异步通知LLM；3）设计了CML（一种token高效的领域特定语言）来表示函数调用和中断，使LLM能正确处理中断语义。优势：端到端任务完成延迟降低1.6x-5.4x，LLM与函数执行并发进行，自动实现并行化而无需预知依赖图。挑战：中断token的时机必须精确（不能打断正在生成的函数调用参数），LLM需要fine-tuning来学习中断语义。",
+    "difficulty": "复杂",
+    "source": "paper/2412.07017v1"
+  },
+  {
+    "id": "q006",
+    "question": "LLM-Tool Compiler如何借鉴硬件MAD（Multiply-Add）操作的设计思想来优化LLM的函数调用效率？它取得了怎样的性能提升？",
+    "ground_truth": "LLM-Tool Compiler借鉴MAD（乘加融合）操作的思想：类似于硬件编译器将多次算术运算融合为单条指令，LLM-Tool Compiler在运行时将相似类型的工具操作选择性融合到单个函数下，将其作为统一任务呈现给LLM。关键洞察是真实LLM工作负载中数据通常具有时序相似性——例如地理空间分析中先按位置筛选再按日期筛选。具体做法：在工具执行前识别工具组并编译为融合操作，LLM选择融合工具后编译器再映射回各工具的原始代码。性能提升：并行调用量增加最多4倍，token成本降低最多40%，延迟降低最多12%。该方案与提示方案无关，可复现有推理逻辑。",
+    "difficulty": "中等",
+    "source": "paper/2405.17438v1"
+  },
+  {
+    "id": "q007",
+    "question": "LangGraph中的Interrupt（中断）机制如何实现Human-in-the-Loop工作流？中断与静态断点有什么区别？",
+    "ground_truth": "LangGraph的中断机制通过以下方式实现Human-in-the-Loop：1）在graph节点中调用interrupt()函数，接受任意JSON可序列化的值作为中断载荷；2）中断触发时LangGraph通过持久化层（checkpointer）保存graph状态并无限期等待；3）使用Command(resume=...)重新调用graph来恢复执行，恢复值成为interrupt()的返回值。中断与静态断点的区别：静态断点只能在特定节点之前或之后暂停，而中断是动态的——可以放在代码任何位置，可以根据应用逻辑设置条件。关键要点包括：必须使用相同的thread_id恢复；节点恢复时会从头重新执行（中断前的代码会重新运行）；推荐使用event streaming（graph.stream_events）驱动可能中断的graph。",
+    "difficulty": "中等",
+    "source": "langgraph_interrupts"
+  },
+  {
+    "id": "q008",
+    "question": "LangGraph提供了Graph API和Functional API两种构建Agent工作流的方式。它们各适用于什么场景？能否在同一应用中混合使用？",
+    "ground_truth": "Graph API适用于：1）需要复杂工作流可视化的调试和文档场景；2）需要跨多个节点显式管理共享状态；3）有多个决策点的条件分支；4）需要合并的并行执行路径；5）团队协作中可视化表示有助于理解。Functional API适用于：1）对已有过程式代码做最小改动；2）标准控制流（if/else、循环、函数调用）；3）函数作用域内的状态管理，无需显式状态管理；4）快速原型开发，减少样板代码；5）简单分支逻辑的线性工作流。两种API共享相同的底层运行时，可以在同一应用中混合使用——例如用Graph API定义顶层编排，用Functional API实现具体节点的逻辑。",
+    "difficulty": "简单",
+    "source": "langgraph_choosing_apis"
+  },
+  {
+    "id": "q009",
+    "question": "LangGraph中什么是Super-step（超级步）？为什么理解Super-step对Time Travel（时间旅行）调试很重要？",
+    "ground_truth": "Super-step（超级步）是graph的一次'时钟周期'，在该周期内所有被调度的节点都会执行（可能并行）。对于START -> A -> B -> END这样的顺序图，输入、节点A和节点B各对应一个独立的super-step，每个super-step结束后生成一个checkpoint。理解super-step边界对time travel很重要，因为只能从checkpoint（即super-step边界）恢复执行——无法从super-step内部的中间状态恢复。此外，LangGraph还在节点（任务）级别持久化写入：每个节点完成时的输出写入checkpoint_writes表，实现pending writes恢复——如果同一super-step中的其他节点失败，已成功节点的写入无需重新计算。Checkpoint的核心作用包括：Human-in-the-loop、跨会话记忆、Time Travel调试和容错恢复。",
+    "difficulty": "中等",
+    "source": "langgraph_checkpointers"
+  },
+  {
+    "id": "q010",
+    "question": "在构建LLM应用系统时，使用强LLM（如GPT-4）作为自动化评估器来评价其他LLM的输出有什么优势和潜在偏差？如何缓解这些偏差？",
+    "ground_truth": "优势：1）GPT-4作为评估器的评分与人类判断具有较高的Spearman相关性（G-Eval达到0.514），超越了传统指标（BLEU、ROUGE等）；2）GPT-4评分的一致性高于人类之间的评分一致性（85% vs 81%）；3）相比人工评估成本更低、速度更快，能给出详细评分解释。三种潜在偏差及缓解方法：1）位置偏差（Position bias）：LLM倾向偏好第一个位置的回答——通过对调回答顺序评估两次来缓解，同一回答两次都被偏好才计为胜出；2）冗长偏差（Verbosity bias）：LLM倾向偏好更长、更啰嗦的回答——通过确保比较的回答长度相似来缓解；3）自我增强偏差（Self-enhancement bias）：GPT-4偏好自己的回答（高出10%胜率），Claude偏好自己（高出25%胜率）——通过不使用同一LLM评估自己输出来缓解。此外，让LLM做比较判断比直接打分更能减少噪声。",
+    "difficulty": "中等",
+    "source": "blog/eugeneyan_llm_patterns"
+  }
+]

@@ -317,13 +317,13 @@ def main():
     console.rule("[bold]Phase 4: Child Chunks → Milvus 向量入库")
 
     connect_milvus()
-    col = create_collection(drop_if_exists=args.drop_existing)
+    create_collection(drop_if_exists=args.drop_existing)
     console.print(f"Milvus Collection '{MILVUS_COLLECTION}' 已就绪")
 
-    col.flush()
-    if col.num_entities > 0 and not args.drop_existing:
+    existing_stats = get_collection_stats()
+    if existing_stats["total_children"] > 0 and not args.drop_existing:
         console.print(
-            f"[yellow]⚠ Collection 已有 {col.num_entities} 条数据，跳过插入[/]"
+            f"[yellow]⚠ Collection 已有 {existing_stats['total_children']} 条数据，跳过插入[/]"
         )
         console.print("如需重建，请使用 --drop-existing 参数")
     else:

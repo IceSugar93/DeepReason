@@ -15,12 +15,10 @@ from typing import Any
 
 import numpy as np
 from pymilvus import (
-    Collection,
     CollectionSchema,
     DataType,
     FieldSchema,
-    connections,
-    utility,
+    MilvusClient,
 )
 
 from config.settings import (
@@ -36,22 +34,32 @@ from config.settings import (
 # Milvus 连接管理
 # ============================================================================
 
+_client: MilvusClient | None = None
+
+
 def connect_milvus(host: str = MILVUS_HOST, port: int = MILVUS_PORT,
                    db_name: str = "default") -> None:
     """建立 Milvus 连接（Standalone / Docker 模式）。"""
-    if not connections.has_connection("default"):
-        connections.connect(
-            alias="default",
-            host=host,
-            port=port,
+    global _client
+    if _client is None:
+        _client = MilvusClient(
+            uri=f"http://{host}:{port}",
             db_name=db_name,
         )
 
 
 def disconnect_milvus() -> None:
     """断开 Milvus 连接。"""
-    if connections.has_connection("default"):
-        connections.disconnect("default")
+    global _client
+    if _client is not None:
+        _client.close()
+        _client = None
+
+
+def _get_client() -> MilvusClient:
+    """获取当前 MilvusClient 实例（调用前需确保已 connect）。"""
+    assert _client is not None, "Milvus 未连接，请先调用 connect_milvus()"
+    return _client
 
 
 # ============================================================================
@@ -189,27 +197,30 @@ def get_child_collection_schema() -> CollectionSchema:
 # Collection 生命周期
 # ============================================================================
 
-def create_collection(drop_if_exists: bool = False) -> Collection:
+def create_collection(drop_if_exists: bool = False) -> str:
     """创建 Child Chunks 的 Milvus Collection 并构建稠密向量索引。
 
     Args:
         drop_if_exists: 是否删除已存在的同名 Collection。
 
     Returns:
-        创建好的 Collection 对象。
+        创建好的 Collection 名称。
     """
     connect_milvus()
+    client = _get_client()
 
-    if utility.has_collection(MILVUS_COLLECTION):
+    if client.has_collection(MILVUS_COLLECTION):
         if drop_if_exists:
-            utility.drop_collection(MILVUS_COLLECTION)
+            client.drop_collection(MILVUS_COLLECTION)
         else:
-            col = Collection(MILVUS_COLLECTION)
-            col.load()
-            return col
+            client.load_collection(MILVUS_COLLECTION)
+            return MILVUS_COLLECTION
 
     schema = get_child_collection_schema()
-    col = Collection(name=MILVUS_COLLECTION, schema=schema)
+    client.create_collection(
+        collection_name=MILVUS_COLLECTION,
+        schema=schema,
+    )
 
     # 稠密向量索引（IVF_FLAT + COSINE）
     index_params = {
@@ -217,22 +228,26 @@ def create_collection(drop_if_exists: bool = False) -> Collection:
         "metric_type": "COSINE",
         "params": {"nlist": 128},
     }
-    col.create_index(field_name="dense_vector", index_params=index_params)
+    client.create_index(
+        collection_name=MILVUS_COLLECTION,
+        field_name="dense_vector",
+        index_params=index_params,
+    )
 
-    col.load()
-    return col
+    client.load_collection(MILVUS_COLLECTION)
+    return MILVUS_COLLECTION
 
 
-def get_collection() -> Collection:
-    """获取已存在的 Child Collection 实例。"""
+def get_collection() -> str:
+    """获取已存在的 Child Collection 名称（验证可用性）。"""
     connect_milvus()
-    if not utility.has_collection(MILVUS_COLLECTION):
+    client = _get_client()
+    if not client.has_collection(MILVUS_COLLECTION):
         raise RuntimeError(
             f"Collection '{MILVUS_COLLECTION}' 不存在，请先运行 scripts/build_index.py"
         )
-    col = Collection(MILVUS_COLLECTION)
-    col.load()
-    return col
+    client.load_collection(MILVUS_COLLECTION)
+    return MILVUS_COLLECTION
 
 
 # ============================================================================
@@ -253,7 +268,8 @@ def insert_embeddings(
     Returns:
         插入的实体总数。
     """
-    col = create_collection()
+    create_collection()
+    client = _get_client()
     total = len(child_chunks)
     batch_size = 500
 
@@ -262,19 +278,21 @@ def insert_embeddings(
         batch_chunks = child_chunks[start:end]
         batch_embs = embeddings[start:end]
 
-        entities = [
-            [c["chunk_id"] for c in batch_chunks],
-            [c["content"] for c in batch_chunks],
-            [emb.tolist() for emb in batch_embs],
-            [c.get("parent_id", c.get("chunk_id", "")) for c in batch_chunks],
-            [c.get("source", "") for c in batch_chunks],
-            [c.get("doc_type", "") for c in batch_chunks],
-            [c.get("title", "") for c in batch_chunks],
-        ]
+        data = []
+        for i, c in enumerate(batch_chunks):
+            data.append({
+                "chunk_id": c["chunk_id"],
+                "content": c["content"],
+                "dense_vector": batch_embs[i].tolist(),
+                "parent_id": c.get("parent_id", c.get("chunk_id", "")),
+                "source": c.get("source", ""),
+                "doc_type": c.get("doc_type", ""),
+                "title": c.get("title", ""),
+            })
 
-        col.insert(entities)
+        client.insert(collection_name=MILVUS_COLLECTION, data=data)
 
-    col.flush()
+    client.flush(MILVUS_COLLECTION)
     return total
 
 
@@ -297,21 +315,23 @@ def search_dense(
     Returns:
         [{chunk_id, content, parent_id, source, doc_type, title, score}, ...]
     """
-    col = get_collection()
+    get_collection()
+    client = _get_client()
 
     filter_parts = []
     if doc_type_filter:
         filter_parts.append(f'doc_type == "{doc_type_filter}"')
-    expr = " and ".join(filter_parts) if filter_parts else None
+    filter_expr = " and ".join(filter_parts) if filter_parts else ""
 
     search_params = {"metric_type": "COSINE", "params": {"nprobe": 16}}
 
-    results = col.search(
+    results = client.search(
+        collection_name=MILVUS_COLLECTION,
         data=[query_embedding.tolist()],
         anns_field="dense_vector",
-        param=search_params,
+        search_params=search_params,
         limit=top_k,
-        expr=expr,
+        filter=filter_expr,
         output_fields=[
             "chunk_id", "content", "parent_id",
             "source", "doc_type", "title",
@@ -320,14 +340,15 @@ def search_dense(
 
     hits = []
     for hit in results[0]:
+        entity = hit.get("entity", {})
         hits.append({
-            "chunk_id": hit.entity.get("chunk_id", ""),
-            "content": hit.entity.get("content", ""),
-            "parent_id": hit.entity.get("parent_id", ""),
-            "source": hit.entity.get("source", ""),
-            "doc_type": hit.entity.get("doc_type", ""),
-            "title": hit.entity.get("title", ""),
-            "score": float(hit.distance),
+            "chunk_id": entity.get("chunk_id", ""),
+            "content": entity.get("content", ""),
+            "parent_id": entity.get("parent_id", ""),
+            "source": entity.get("source", ""),
+            "doc_type": entity.get("doc_type", ""),
+            "title": entity.get("title", ""),
+            "score": float(hit.get("distance", 0)),
         })
 
     return hits
@@ -415,9 +436,12 @@ def _find_parent(parent_id: str) -> dict | None:
 
 def get_collection_stats() -> dict[str, Any]:
     """获取 Milvus Collection 统计信息。"""
-    col = get_collection()
-    col.flush()
-    num_entities = col.num_entities
+    get_collection()
+    client = _get_client()
+    client.flush(MILVUS_COLLECTION)
+
+    stats_info = client.get_collection_stats(MILVUS_COLLECTION)
+    num_entities = stats_info["row_count"]
     parent_count = get_parent_count()
 
     stats = {
@@ -428,8 +452,9 @@ def get_collection_stats() -> dict[str, Any]:
 
     for doc_type in ["paper", "doc", "blog"]:
         try:
-            result = col.query(
-                expr=f'doc_type == "{doc_type}"',
+            result = client.query(
+                collection_name=MILVUS_COLLECTION,
+                filter=f'doc_type == "{doc_type}"',
                 output_fields=["count(*)"],
             )
             stats[f"children_{doc_type}"] = len(result)
