@@ -8,6 +8,7 @@
 """
 
 import contextvars
+import json
 import time
 
 import numpy as np
@@ -20,6 +21,9 @@ from src.agents.planner import call_planner
 from src.agents.generator import call_generator
 from src.agents.critic import call_critic, call_critic_verify
 from src.agents.reviser import call_reviser
+from src.guardrails.convergence import check_answer_convergence
+from src.guardrails.safety import build_answer_annotations
+from src.mcp_server.runtime import register_retriever
 
 console = Console()
 
@@ -34,6 +38,8 @@ _embed_model_ctx: contextvars.ContextVar = contextvars.ContextVar("embed_model",
 def set_retriever_context(retriever, embed_model):
     _retriever_ctx.set(retriever)
     _embed_model_ctx.set(embed_model)
+    # 同步注册给 mcp_server 工具后端（Critic 工具核查等进程内调用使用）
+    register_retriever(retriever)
 
 
 # ============================================================================
@@ -209,18 +215,90 @@ def critic_node(state: dict) -> dict:
 
     console.print(f"  ⚖️  [bold]Critic[/bold]: {_verdict_style(verdict)}  {confidence:.0%}")
     if issues:
-        sevs = {"critical": 0, "minor": 0}
-        for iss in issues:
-            sevs[iss.get("severity", "minor")] += 1
-        console.print(f"    issues: {len(issues)} (critical:{sevs['critical']} minor:{sevs['minor']})")
-    if improvements and verdict != "accept":
-        console.print(f"    [dim]{improvements[:200]}[/dim]")
+        console.print(f"    审查意见（{len(issues)} 条）:")
+        for idx, iss in enumerate(issues, 1):
+            sev = "严重" if iss.get("severity") == "critical" else "次要"
+            iss_conf = iss.get("confidence", 0)
+            conf_str = f"{float(iss_conf):.2f}" if isinstance(iss_conf, (int, float)) else str(iss_conf)
+            console.print(
+                f"      {idx}. [{sev}][{iss.get('status', '?')}][conf {conf_str}] {iss.get('claim', '')}"
+            )
+            evidence = iss.get("evidence", "")
+            if evidence:
+                console.print(f"         [dim]证据: {evidence}[/]")
+            fix = iss.get("fix", "")
+            if fix:
+                console.print(f"         [dim]→ 修改建议: {fix}[/]")
+    if improvements:
+        console.print(f"    [dim]整体方向: {improvements}[/]")
+    reasoning = ruling.get("reasoning", "")
+    if reasoning:
+        console.print(f"    [dim]判定理由: {reasoning}[/]")
+
+    # ── 工具核查结果展示 + 命中文档并入检索集 ──
+    tool_verifications = ruling.get("tool_verifications", [])
+    updated_docs = docs
+    if tool_verifications:
+        intercepted = sum(1 for v in tool_verifications if v.get("verdict") == "supported")
+        console.print(
+            f"    [cyan]🔧 工具核查 {len(tool_verifications)} 条:"
+            f"{intercepted} 条改判 supported（已拦截）[/]"
+        )
+        for idx, v in enumerate(tool_verifications, 1):
+            v_style = "[green]supported[/]" if v.get("verdict") == "supported" else "[red]unsupported[/]"
+            console.print(
+                f"      {idx}. {v_style} {v.get('claim', '')}"
+            )
+            if v.get("reason"):
+                console.print(f"         [dim]理由: {v['reason']}[/]")
+            fetched_ids = v.get("fetched_chunk_ids", [])
+            if fetched_ids:
+                console.print(f"         [dim]命中文档: {', '.join(fetched_ids)}[/]")
+            for tc in v.get("tool_trace", []):
+                console.print(
+                    f"         [dim]  · {tc.get('name')}({tc.get('args', {})}) → {tc.get('hits', 0)} 条命中[/]"
+                )
+        from src.retrieval.vector_store import lookup_parents
+
+        fetched_ids = []
+        for v in tool_verifications:
+            fetched_ids.extend(v.get("fetched_chunk_ids", []))
+        existing_ids = {d.get("chunk_id") for d in docs}
+        new_docs = [
+            d for d in lookup_parents(fetched_ids)
+            if d.get("chunk_id") not in existing_ids
+        ]
+        if new_docs:
+            # 工具取回的文档并入检索集——它们已成为裁决依据，必须流进
+            # internal_contexts，否则评估侧会把有据断言误判为幻觉
+            updated_docs = docs + new_docs
+            console.print(f"    [cyan]→ {len(new_docs)} 篇工具命中文档并入检索集[/]")
+
+    # ── 完整输出展示：模型原始 JSON + 工具核查后的最终裁决全量 ──
+    raw_output = ruling.get("raw_output", "")
+    if raw_output:
+        console.print(Panel(
+            raw_output,
+            title=f"📜 Critic 原始输出 R{review_round}（模型原文）",
+            border_style="cyan",
+        ))
+    final_ruling = {k: v for k, v in ruling.items() if k != "raw_output"}
+    console.print(Panel(
+        json.dumps(final_ruling, ensure_ascii=False, indent=2),
+        title=f"🔬 Critic 完整裁决 R{review_round}（含工具核查后）",
+        border_style="magenta",
+    ))
 
     review_entry = {
         "round": review_round,
         "verdict": verdict,
         "confidence": confidence,
         "issues_count": len(issues),
+        # 完整保留本轮审查意见，供评估脚本展示逐轮 Critic 观点
+        "issues": issues,
+        "improvements": improvements,
+        "reasoning": ruling.get("reasoning", ""),
+        "tool_verifications": tool_verifications,
         "timestamp": time.time(),
     }
 
@@ -236,6 +314,7 @@ def critic_node(state: dict) -> dict:
         "review_round": review_round,
         "previous_issues": high_conf_issues,
         "review_history": [review_entry],
+        "retrieved_docs": updated_docs,
     }
 
 
@@ -262,7 +341,10 @@ def reviser_node(state: dict) -> dict:
     issues_text = ""
     for i, iss in enumerate(issues):
         sev = "严重" if iss.get("severity") == "critical" else "次要"
-        issues_text += f"{i+1}. [{sev}] {iss.get('claim', '')}\n"
+        issues_text += f"{i+1}. [{sev}][{iss.get('status', '?')}] {iss.get('claim', '')}\n"
+        evidence = iss.get("evidence", "")
+        if evidence:
+            issues_text += f"   文献依据: {evidence}\n"
         fix = iss.get("fix", "")
         if fix:
             issues_text += f"   修改建议: {fix}\n"
@@ -285,6 +367,14 @@ def reviser_node(state: dict) -> dict:
         docs=docs,
     )
 
+    # ── Guardrails: 收敛检测 — 修订与上一版高度相似 → 标记收敛，路由层据此提前终止 ──
+    conv = check_answer_convergence(current_answer, refined)
+    if conv["converged"]:
+        console.print(
+            f"    [yellow]🧿 收敛检测: 修订与上一版相似度 {conv['similarity']:.0%}，"
+            "答案未实质变化，判定收敛，提前终止[/]"
+        )
+
     console.print(Panel(_truncate(refined, 500), title="📝 修订后答案"))
 
     revision_entry = {
@@ -292,12 +382,16 @@ def reviser_node(state: dict) -> dict:
         "issues_count": len(issues),
         "before": current_answer[:200],
         "after": refined[:200],
+        "similarity": conv["similarity"],
+        "converged": conv["converged"],
     }
 
     return {
         "refined_answer": refined,
         "revision_round": revision_round,
         "revision_history": [revision_entry],
+        "converged": conv["converged"],
+        "answer_similarity": conv["similarity"],
     }
 
 
@@ -337,14 +431,30 @@ def verify_node(state: dict) -> dict:
 # ============================================================================
 
 def finalize_node(state: dict) -> dict:
-    answer = state.get("refined_answer") or state.get("draft_answer", "")
+    query = state.get("query", "")
+    draft_answer = state.get("draft_answer", "")
+    answer = state.get("refined_answer") or draft_answer
     ruling = state.get("critic_ruling", {})
-    docs = state.get("retrieved_docs", [])
     review_round = state.get("review_round", 0)
     revision_round = state.get("revision_round", 0)
 
     verdict = ruling.get("verdict", "unknown")
     confidence = ruling.get("confidence", 0.5)
+
+    # ── Guardrails: reject 回退初稿 — 裁决为 reject 时修订版被认为
+    #    风险高于初稿，退回 Generator 初稿作为最终答案 ──
+    if verdict == "reject" and draft_answer and answer != draft_answer:
+        console.print(
+            f"    [red]❌ reject 回退: 修订版被认为不可信，最终答案退回初稿[/]"
+        )
+        answer = draft_answer
+
+    # ── Guardrails: 风险/低置信度标注 — 只写入元数据，不污染 answer 文本 ──
+    annotations = build_answer_annotations(query, confidence)
+    if annotations["risk_warning"]:
+        console.print(f"    [yellow]⚠️  {annotations['risk_warning']}[/]")
+    if annotations["uncertainty_note"]:
+        console.print(f"    [yellow]⚠️  {annotations['uncertainty_note']}[/]")
 
     console.print(Rule("🏁 最终结果", style="bold green"))
     console.print(
@@ -356,4 +466,5 @@ def finalize_node(state: dict) -> dict:
     return {
         "final_answer": answer,
         "confidence": confidence,
+        "answer_annotations": annotations,
     }
