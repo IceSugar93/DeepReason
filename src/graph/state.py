@@ -50,6 +50,11 @@ class AgentState(TypedDict):
     # ── Output ─────────────────────────────────────────────────────────
     final_answer: str
     confidence: float
+    answer_annotations: dict                  # Guardrails: 风险/低置信度标注元数据
+
+    # ── Guardrails ─────────────────────────────────────────────────────
+    converged: bool                           # 收敛检测：修订未实质变化 → 提前终止
+    answer_similarity: float                  # 最近一次修订的前后答案相似度
 
     # ── Control ────────────────────────────────────────────────────────
     retrieval_hops: int
