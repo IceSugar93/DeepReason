@@ -34,6 +34,10 @@ def route_after_critic(state: dict) -> str:
     if verdict == "accept":
         return "finalize"
 
+    # Guardrails: 已收敛（修订未实质变化）→ 剩余问题无法通过修订解决，强制输出
+    if state.get("converged"):
+        return "finalize"
+
     # 没有高置信度 issue：不值得修订，直接输出
     if not previous_issues:
         return "finalize"
@@ -47,10 +51,15 @@ def route_after_critic(state: dict) -> str:
 def route_after_verify(state: dict) -> str:
     """定向验证后的分支路由。
 
+    - 已收敛（修订未实质变化）→ 强制输出（Guardrails 提前终止）
     - 全部解决 + 审查轮次未满 → 回到 Critic(full) 重新全面审查
     - 有未解决 + 修订轮次未满 → 回到 Reviser 继续改
     - 达到上限 → 强制输出
     """
+    # Guardrails: 收敛检测优先——答案不再实质变化时继续循环没有收益
+    if state.get("converged"):
+        return "finalize"
+
     verify_result = state.get("verify_result", {})
     all_resolved = verify_result.get("all_resolved", False)
     revision_round = state.get("revision_round", 0)
