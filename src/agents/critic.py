@@ -11,9 +11,16 @@
 """
 
 import json
+import re
+import sys
 
-from config.settings import JUDGE_MODEL
-from src.utils.llm import call_llm_with_json
+from config.settings import (
+    JUDGE_MODEL,
+    CRITIC_TOOL_VERIFY_ENABLED,
+    CRITIC_TOOL_VERIFY_CONF_THRESHOLD,
+    CRITIC_TOOL_VERIFY_MAX_CLAIMS,
+)
+from src.utils.llm import call_llm_with_json, call_llm_tool_loop
 
 # ============================================================================
 # System Prompt
@@ -53,15 +60,16 @@ CRITIC_SYSTEM_PROMPT = """
 
 ## 输出格式
 
-必须严格输出合法 JSON，不要包含任何 Markdown 标记或解释性废话。
+必须严格输出合法 JSON，不要包含任何 Markdown 标记或解释性废话。所有字段均为必填，不得省略。
 
 若答案准确无误、没有需要修改的问题，直接输出：
-{"verdict": "accept", "issues": []}
+{"verdict": "accept", "confidence": 0.0-1.0, "issues": []}
 
 若存在问题，严格按以下 schema 输出：
 
 {
   "verdict": "revise" | "reject",
+  "confidence": 0.0-1.0,
   "issues": [
     {
       "claim": "<答案中存在问题的具体文本原文>",
@@ -72,6 +80,8 @@ CRITIC_SYSTEM_PROMPT = """
     }
   ]
 }
+
+注意区分两级 confidence：顶层 confidence 是你对**整体裁决**的把握（accept 时也必须输出）；issue 级 confidence 是该问题确实成立的把握，只有 ≥0.8 的 issue 会被交给作者修改——请如实评估，不要为了让答案被修改而虚报高置信度。
 """
 
 
@@ -127,14 +137,27 @@ def call_critic(
             system_prompt=CRITIC_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=0.1,
+            return_raw=True,
         )
-        return {
+        raw_output = result["raw"]
+        result = result["parsed"]
+        if "confidence" not in result:
+            print(
+                "[critic] 警告: 裁决 JSON 缺少 confidence 字段，回退默认值 0.5",
+                file=sys.stderr,
+            )
+        ruling = {
             "verdict": result.get("verdict", "revise"),
             "confidence": float(result.get("confidence", 0.5)),
             "issues": result.get("issues", []) or [],
             "improvements": result.get("improvements", ""),
             "reasoning": result.get("reasoning", ""),
+            # 模型原始输出原文（完整保留，供控制台全量展示）
+            "raw_output": raw_output,
         }
+        if CRITIC_TOOL_VERIFY_ENABLED and ruling["verdict"] != "accept":
+            ruling = _tool_verify_issues(query, ruling)
+        return ruling
     except (json.JSONDecodeError, KeyError, ValueError) as e:
         return {
             "verdict": "revise",
@@ -143,6 +166,165 @@ def call_critic(
             "improvements": f"Critic JSON parse error: {e}",
             "reasoning": f"Technical error: {e}",
         }
+
+
+# ============================================================================
+# Tool-Assisted Verification — 存疑断言的工具核查（拦截假阳性）
+# ============================================================================
+# Critic 只能对照「已检索到的文档集」判 unsupported——断言其实真实、只是
+# 证据没被检索到时，就会被误判并触发有害修订（q001 型退化）。这里对低置信度
+# 的 unsupported/contradicted 断言，先用工具在全语料查证，再决定是否保留。
+
+CLAIM_VERIFIER_SYSTEM_PROMPT = """你是事实核查员。给你一条从学术答案中提取的断言，你的任务是判断它在本地语料库（论文/框架文档/博客）中**是否有依据**。
+
+## 工作流程
+
+1. 调用工具检索：paper_search 查论文、concept_query 查概念定义、framework_doc_search 查框架文档。可多次调用、换关键词。
+2. **工具调用最多 2 轮**——拿到初步材料后就比对，不要无限深挖。检索关键词用断言中的核心术语（英文术语优先），不要整句复制。
+3. 仔细比对检索到的原文与断言：
+   - 有直接原文或明确同义表述 → supported
+   - 找不到依据，或与原文相反 → unsupported
+
+## 输出
+
+完成检索后，只输出一行 JSON（不要 markdown 包裹）：
+{"verdict": "supported" | "unsupported", "reason": "一句中文理由"}"""
+
+
+def _verify_claim_with_tools(query: str, claim: str) -> dict:
+    """用工具在全语料中核查单条断言。
+
+    Returns:
+        {"verdict": "supported"|"unsupported"|"unknown",
+         "reason": str, "fetched_chunk_ids": [str]}
+    """
+    from src.mcp_server.tools import (
+        PAPER_SEARCH_SCHEMA,
+        CONCEPT_QUERY_SCHEMA,
+        FRAMEWORK_DOC_SEARCH_SCHEMA,
+    )
+
+    user_prompt = f"""## 原始问题
+{query}
+
+## 待核查断言
+{claim}
+
+请调用工具检索语料，判断该断言是否有依据。"""
+
+    try:
+        result = call_llm_tool_loop(
+            model_name=JUDGE_MODEL,
+            system_prompt=CLAIM_VERIFIER_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            tools=[PAPER_SEARCH_SCHEMA, CONCEPT_QUERY_SCHEMA, FRAMEWORK_DOC_SEARCH_SCHEMA],
+            max_rounds=3,
+            temperature=0.0,
+        )
+    except Exception as e:
+        print(f"[critic] 工具核查调用失败: {e}", file=sys.stderr)
+        return {"verdict": "unknown", "reason": f"tool verify error: {e}",
+                "fetched_chunk_ids": []}
+
+    text = result.get("text", "")
+
+    # 解析 verdict：优先 JSON，退化到关键词匹配（先 unsupported 后 supported，
+    # 防止 "unsupported" 中的子串被误判为 supported）
+    verdict = "unknown"
+    parsed = None
+    json_candidate = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    try:
+        parsed = json.loads(json_candidate)
+    except (json.JSONDecodeError, TypeError):
+        m = re.search(r'"(unsupported|supported)"', text) or re.search(
+            r"\b(unsupported|supported)\b", text
+        )
+        if m:
+            parsed = {"verdict": m.group(1)}
+    if isinstance(parsed, dict):
+        v = str(parsed.get("verdict", "")).lower()
+        if v in ("supported", "unsupported"):
+            verdict = v
+
+    # reason 优先取解析出的 JSON 内层字段，避免把整段 JSON 原文塞进去
+    reason = text[:200]
+    if isinstance(parsed, dict) and parsed.get("reason"):
+        reason = str(parsed["reason"])[:200]
+
+    # 从工具调用日志中提取命中的 chunk_id（供并入检索集，守评测口径）
+    fetched: list[str] = []
+    tool_trace: list[dict] = []
+    for entry in result.get("tool_log", []):
+        try:
+            payload = json.loads(entry.get("result", "{}"))
+        except (json.JSONDecodeError, TypeError):
+            payload = {}
+        hits = 0
+        for key in ("results", "results_a", "results_b"):
+            results = payload.get(key, []) or []
+            hits += len(results)
+            for r in results:
+                cid = r.get("chunk_id")
+                if cid and cid not in fetched:
+                    fetched.append(cid)
+        # 压缩记录每次工具调用（名称/参数/命中数），供控制台展示完整核查过程
+        tool_trace.append({
+            "name": entry.get("name", "?"),
+            "args": entry.get("args", {}),
+            "hits": hits,
+        })
+
+    return {
+        "verdict": verdict,
+        "reason": reason,
+        "fetched_chunk_ids": fetched[:8],
+        "tool_trace": tool_trace,
+    }
+
+
+def _tool_verify_issues(query: str, ruling: dict) -> dict:
+    """对低置信度的 unsupported/contradicted 断言做工具核查。
+
+    核查改判 supported 的 issue 视为假阳性，直接从 issues 中移除；
+    若所有 issue 均被拦截，裁决回退为 accept（修订依据已不存在）。
+    """
+    issues = ruling.get("issues", [])
+    candidates = [
+        i for i in issues
+        if i.get("status") in ("unsupported", "contradicted")
+        and float(i.get("confidence", 0) or 0) < CRITIC_TOOL_VERIFY_CONF_THRESHOLD
+    ][:CRITIC_TOOL_VERIFY_MAX_CLAIMS]
+
+    if not candidates:
+        ruling["tool_verifications"] = []
+        return ruling
+
+    verifications = []
+    intercepted_ids = set()
+    for iss in candidates:
+        v = _verify_claim_with_tools(query, iss.get("claim", ""))
+        verifications.append({
+            "claim": iss.get("claim", "")[:200],
+            "verdict": v["verdict"],
+            "reason": v["reason"],
+            "fetched_chunk_ids": v["fetched_chunk_ids"],
+            "tool_trace": v.get("tool_trace", []),
+        })
+        if v["verdict"] == "supported":
+            intercepted_ids.add(id(iss))
+
+    if intercepted_ids:
+        ruling["issues"] = [i for i in issues if id(i) not in intercepted_ids]
+        if not ruling["issues"]:
+            ruling["verdict"] = "accept"
+            ruling["reasoning"] = (
+                f"{ruling.get('reasoning', '')} "
+                f"（工具核查：{len(intercepted_ids)} 条存疑断言在全语料中找到依据，"
+                f"判定为假阳性，改判 accept）"
+            ).strip()
+
+    ruling["tool_verifications"] = verifications
+    return ruling
 
 
 # ============================================================================
