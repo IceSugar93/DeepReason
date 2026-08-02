@@ -1,10 +1,15 @@
 """护栏模块 — 运行时限制强制执行
 
-集中管理辩论轮次、修正轮次和检索跳数的上限检查，
+集中管理辩论轮次、修正轮次、检索跳数的上限检查与 LLM 调用超时，
 为条件路由和监控日志提供单一真相来源。
 """
 
-from config.settings import MAX_CORRECTION_ROUNDS, MAX_DEBATE_ROUNDS, MAX_RETRIEVAL_HOPS
+from config.settings import (
+    AGENT_TIMEOUT,
+    MAX_CORRECTION_ROUNDS,
+    MAX_DEBATE_ROUNDS,
+    MAX_RETRIEVAL_HOPS,
+)
 
 
 def can_continue_debate(debate_round: int) -> bool:
