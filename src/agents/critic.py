@@ -15,7 +15,7 @@ import re
 import sys
 
 from config.settings import (
-    JUDGE_MODEL,
+    CRITIC_MODEL,
     CRITIC_TOOL_VERIFY_ENABLED,
     CRITIC_TOOL_VERIFY_CONF_THRESHOLD,
     CRITIC_TOOL_VERIFY_MAX_CLAIMS,
@@ -133,7 +133,7 @@ def call_critic(
 
     try:
         result = call_llm_with_json(
-            model_name=JUDGE_MODEL,
+            model_name=CRITIC_MODEL,
             system_prompt=CRITIC_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=0.1,
@@ -214,7 +214,7 @@ def _verify_claim_with_tools(query: str, claim: str) -> dict:
 
     try:
         result = call_llm_tool_loop(
-            model_name=JUDGE_MODEL,
+            model_name=CRITIC_MODEL,
             system_prompt=CLAIM_VERIFIER_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             tools=[PAPER_SEARCH_SCHEMA, CONCEPT_QUERY_SCHEMA, FRAMEWORK_DOC_SEARCH_SCHEMA],
@@ -395,7 +395,7 @@ def call_critic_verify(
 
     try:
         result = call_llm_with_json(
-            model_name=JUDGE_MODEL,
+            model_name=CRITIC_MODEL,
             system_prompt=VERIFY_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=0.0,

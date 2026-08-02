@@ -11,8 +11,8 @@ from openai import OpenAI
 from config.settings import (
     DEEPSEEK_API_KEY,
     DEEPSEEK_BASE_URL,
-    PLANNER_MODEL, ADVOCATE_MODEL, SKEPTIC_MODEL,
-    JUDGE_MODEL, VALIDATOR_MODEL,
+    PLANNER_MODEL, GENERATOR_MODEL, REVISER_MODEL,
+    CRITIC_MODEL,
     AGENT_TIMEOUT,
 )
 
@@ -20,8 +20,8 @@ from config.settings import (
 __all__ = [
     "call_llm", "call_llm_with_json", "call_llm_with_tools", "call_llm_tool_loop",
     "execute_tool_call",
-    "PLANNER_MODEL", "ADVOCATE_MODEL", "SKEPTIC_MODEL",
-    "JUDGE_MODEL", "VALIDATOR_MODEL",
+    "PLANNER_MODEL", "GENERATOR_MODEL", "REVISER_MODEL",
+    "CRITIC_MODEL",
 ]
 
 # 延迟初始化的共享客户端（连接复用，性能更好）

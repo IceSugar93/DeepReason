@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepReason — 多Agent自纠错推理引擎</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo">🧠</span>
+    <h1>DeepReason</h1>
+    <span class="sub">3-Agent 审查-修订推理引擎</span>
+  </div>
+  <div class="status">
+    <span id="status-dot" class="dot gray"></span>
+    <span id="status-text">连接中...</span>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button id="tab-demo" class="tab active">🔍 推理演示</button>
+  <button id="tab-eval" class="tab">📊 Eval 结果</button>
+</nav>
+
+<main>
+  <!-- ═══════════════ 演示 Tab ═══════════════ -->
+  <section id="panel-demo" class="panel active">
+    <div class="query-box">
+      <textarea id="query-input" rows="3"
+        placeholder="输入一个问题，观察 Generator → Critic → Reviser 的审查-修订全过程…"></textarea>
+      <div class="query-actions">
+        <button id="btn-run" class="btn primary">▶ 开始推理</button>
+        <button id="btn-stop" class="btn" disabled>■ 停止</button>
+        <span class="examples">
+          示例：
+          <a data-q="L-MAD 辩论框架中，更多子辩论者（Agent）数量对辩论准确性有什么影响？什么是过度辩论漂移？">L-MAD 子辩论者</a>
+          <a data-q="AsyncLM 如何实现异步工具调用？与同步调用相比有何优势？">AsyncLM</a>
+        </span>
+      </div>
+    </div>
+
+    <div id="timeline" class="timeline"></div>
+
+    <div id="result" class="result hidden">
+      <h2 class="result-title">🏁 最终答案</h2>
+      <div id="result-badges" class="badges"></div>
+      <div id="result-answer" class="answer-text"></div>
+      <div id="result-annotations" class="annotations"></div>
+      <details class="sources">
+        <summary>📚 内部检索文档（internal contexts）</summary>
+        <div id="result-contexts"></div>
+      </details>
+    </div>
+  </section>
+
+  <!-- ═══════════════ Eval Tab ═══════════════ -->
+  <section id="panel-eval" class="panel">
+    <div class="eval-toolbar">
+      <label>历史运行：
+        <select id="eval-select"></select>
+      </label>
+      <button id="btn-refresh" class="btn">⟳ 刷新</button>
+    </div>
+
+    <div id="eval-summary" class="summary-cards"></div>
+    <div id="eval-table-wrap" class="table-wrap"></div>
+    <div id="eval-detail" class="eval-detail"></div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

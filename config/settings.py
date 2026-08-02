@@ -16,13 +16,12 @@ load_dotenv()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "your-api-key-here")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
 
-# 各Agent使用的模型名称（DeepSeek 目前主要为 deepseek-chat）
-# 后续可替换为不同模型以优化成本/效果
-PLANNER_MODEL = os.getenv("PLANNER_MODEL", "deepseek-v4-pro")
-ADVOCATE_MODEL = os.getenv("ADVOCATE_MODEL", "deepseek-v4-pro")
-SKEPTIC_MODEL = os.getenv("SKEPTIC_MODEL", "deepseek-v4-pro")
-JUDGE_MODEL = os.getenv("JUDGE_MODEL", "deepseek-v4-pro")
-VALIDATOR_MODEL = os.getenv("VALIDATOR_MODEL", "deepseek-v4-pro")
+# 各Agent使用的模型名称（API 仅支持 deepseek-v4-pro / deepseek-v4-flash）
+# 与当前 3-Agent 架构对应：Planner / Generator / Critic / Reviser
+PLANNER_MODEL = os.getenv("PLANNER_MODEL", "deepseek-v4-flash")
+GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "deepseek-v4-pro")   # Generator：答案生成（原 ADVOCATE_MODEL）
+CRITIC_MODEL = os.getenv("CRITIC_MODEL", "deepseek-v4-flash")       # Critic：审查+裁决+工具核查（原 JUDGE_MODEL）
+REVISER_MODEL = os.getenv("REVISER_MODEL", "deepseek-v4-flash")     # Reviser：按审稿意见修订（原 SKEPTIC_MODEL）
 
 
 # ============================================================================
@@ -34,17 +33,17 @@ MILVUS_PORT = int(os.getenv("MILVUS_PORT", "19530"))
 MILVUS_COLLECTION = os.getenv("MILVUS_COLLECTION", "deepreason_knowledge")
 
 # 稠密向量维度 (bge-small-zh-v1.5: 512维; BGE-M3: 1024维)
-DENSE_DIM = 512
+DENSE_DIM = 1024
 
 
 # ============================================================================
 # Embedding 模型配置
 # ============================================================================
 
-# 轻量模型快速跑通全流程，验证完换回 BAAI/bge-m3 (1024维)
+# 大模型 (BGE-M3, 1024维)，多语言 + 稠密/稀疏双表征
 EMBEDDING_MODEL_NAME = os.getenv(
     "EMBEDDING_MODEL_NAME",
-    "BAAI/bge-small-zh-v1.5",
+    "BAAI/bge-m3",
 )
 
 # 批量处理时的batch size（根据显存/内存调整）
@@ -90,8 +89,8 @@ PARENT_EXPANSION_THRESHOLD = int(os.getenv("PARENT_EXPANSION_THRESHOLD", "2"))
 # 是否启用 HyDE（查询时生成假设性答案辅助检索）
 HYDE_ENABLED = os.getenv("HYDE_ENABLED", "true").lower() == "true"
 
-# HyDE 使用的模型（与主 LLM 一致即可，消耗很小）
-HYDE_MODEL = os.getenv("HYDE_MODEL", "deepseek-chat")
+# HyDE 使用的模型（轻量任务用 flash 即可；API 仅支持 deepseek-v4-pro / deepseek-v4-flash）
+HYDE_MODEL = os.getenv("HYDE_MODEL", "deepseek-v4-flash")
 
 # HyDE 生成温度（假设性答案不需要精确，稍高温度增加多样性）
 HYDE_TEMPERATURE = float(os.getenv("HYDE_TEMPERATURE", "0.4"))
@@ -105,17 +104,17 @@ MULTI_HYDE_PERSPECTIVES = ["neutral", "supportive", "critical"]
 # ============================================================================
 
 # 稠密向量检索召回数（在 Child Chunk 层级检索）
-DENSE_TOP_K = int(os.getenv("DENSE_TOP_K", "30"))
+DENSE_TOP_K = int(os.getenv("DENSE_TOP_K", "20"))
 
 # BM25稀疏检索召回数（在 Parent Chunk 层级检索）
-SPARSE_TOP_K = int(os.getenv("SPARSE_TOP_K", "20"))
+SPARSE_TOP_K = int(os.getenv("SPARSE_TOP_K", "15"))
 
 # 融合后返回给后续流程的最终文档数
-FINAL_TOP_K = int(os.getenv("FINAL_TOP_K", "8"))
+FINAL_TOP_K = int(os.getenv("FINAL_TOP_K", "5"))
 
 # 稠密/稀疏加权融合的权重（dense_weight + sparse_weight = 1.0）
-DENSE_WEIGHT = float(os.getenv("DENSE_WEIGHT", "0.6"))
-SPARSE_WEIGHT = float(os.getenv("SPARSE_WEIGHT", "0.4"))
+DENSE_WEIGHT = float(os.getenv("DENSE_WEIGHT", "0.7"))
+SPARSE_WEIGHT = float(os.getenv("SPARSE_WEIGHT", "0.3"))
 
 
 # ============================================================================
@@ -125,6 +124,15 @@ SPARSE_WEIGHT = float(os.getenv("SPARSE_WEIGHT", "0.4"))
 MAX_CORRECTION_ROUNDS = 3      # Reflexion 自纠错最大轮数
 MAX_DEBATE_ROUNDS = 2          # 辩论最大轮数
 MAX_RETRIEVAL_HOPS = 3         # 多跳检索最大跳数
+
+# 单次 LLM 调用超时（秒）——网络/网关卡死时兜底，避免整个会话挂起
+AGENT_TIMEOUT = int(os.getenv("AGENT_TIMEOUT", "120"))
+
+# 收敛检测：修订前后答案相似度 ≥ 该阈值视为"未实质变化"，提前终止循环
+CONVERGENCE_SIMILARITY_THRESHOLD = float(os.getenv("CONVERGENCE_SIMILARITY_THRESHOLD", "0.85"))
+
+# 低置信度标注阈值：最终答案 confidence 低于此值时附加不确定性提示
+LOW_CONFIDENCE_ANNOTATION_THRESHOLD = float(os.getenv("LOW_CONFIDENCE_ANNOTATION_THRESHOLD", "0.6"))
 
 
 # ============================================================================
@@ -145,3 +153,18 @@ BM25_INDEX_DIR = os.path.join(PROCESSED_DIR, "bm25_index")
 
 # 评估数据路径
 EVAL_DIR = os.path.join(PROJECT_ROOT, "eval")
+
+
+# ============================================================================
+# Agent 工具（MCP）配置
+# ============================================================================
+
+# Critic 工具核查：对低置信度的 unsupported/contradicted 断言，先用工具
+# 在全语料查证再决定是否保留该 issue（拦截"证据只是没被检索到"的假阳性）
+CRITIC_TOOL_VERIFY_ENABLED = os.getenv("CRITIC_TOOL_VERIFY_ENABLED", "true").lower() == "true"
+
+# 只核查置信度低于此值的存疑断言（≥0.9 的字面确证级不再核查）
+CRITIC_TOOL_VERIFY_CONF_THRESHOLD = float(os.getenv("CRITIC_TOOL_VERIFY_CONF_THRESHOLD", "0.9"))
+
+# 每轮审查最多工具核查的断言数（LLM 调用成本封顶）
+CRITIC_TOOL_VERIFY_MAX_CLAIMS = int(os.getenv("CRITIC_TOOL_VERIFY_MAX_CLAIMS", "2"))

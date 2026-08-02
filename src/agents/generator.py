@@ -3,7 +3,7 @@
 严格基于文献生成答案草案。不涉及辩护或修订——那是 Reviser 的职责。
 """
 
-from config.settings import ADVOCATE_MODEL
+from config.settings import GENERATOR_MODEL
 from src.utils.llm import call_llm
 
 # ============================================================================
@@ -60,7 +60,7 @@ def call_generator(query: str, docs: list[dict]) -> str:
 请基于以上文献，生成准确、有据的回答。"""
 
     return call_llm(
-        model_name=ADVOCATE_MODEL,
+        model_name=GENERATOR_MODEL,
         system_prompt=GENERATOR_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         temperature=0.3,

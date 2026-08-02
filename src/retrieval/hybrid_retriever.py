@@ -131,6 +131,7 @@ class HybridRetriever:
         doc_type_filter: str | None = None,
         enable_rerank: bool = True,
         enable_multi_hyde: bool = False,
+        skip_hyde: bool = False,
     ) -> list[dict]:
         """执行完整的 6 步高级 RAG 检索。
 
@@ -141,6 +142,8 @@ class HybridRetriever:
             doc_type_filter: 可选，按文档类型过滤。
             enable_rerank: 是否启用 Cross-Encoder 重排序。
             enable_multi_hyde: 是否启用 Multi-HyDE（多视角多路检索融合）。
+            skip_hyde: 跳过 HyDE 查询扩展（工具调用场景：查询已是具体文本，
+                省去每次一次 LLM 假设答案生成的开销）。
 
         Returns:
             Parent Chunk 列表，每个带完整元数据和各级分数。
@@ -148,13 +151,13 @@ class HybridRetriever:
         # ================================================================
         # Step 1: HyDE 查询扩展
         # ================================================================
-        if self.enable_hyde and enable_multi_hyde:
+        if self.enable_hyde and not skip_hyde and enable_multi_hyde:
             # Multi-HyDE: 多视角独立检索 → RRF 融合
             return self._search_multi_hyde(
                 query, query_embedding, top_k, doc_type_filter, enable_rerank
             )
 
-        if self.enable_hyde:
+        if self.enable_hyde and not skip_hyde:
             # 单视角 HyDE: 生成假设答案 → embed → 检索
             hyde_query = self.hyde.expand_query(query)
             hyde_embedding = self._embed_query(hyde_query)

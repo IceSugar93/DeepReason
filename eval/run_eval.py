@@ -40,7 +40,7 @@ from src.retrieval.vector_store import (
     disconnect_milvus,
     load_parents,
 )
-from src.utils.llm import call_llm, JUDGE_MODEL
+from src.utils.llm import call_llm, CRITIC_MODEL
 
 console = Console()
 
@@ -80,7 +80,7 @@ def generate_answer(query: str, contexts: list[str]) -> str:
 
 请基于以上上下文回答问题。"""
 
-    return call_llm(JUDGE_MODEL, ANSWER_SYSTEM_PROMPT, user_prompt, temperature=0.3)
+    return call_llm(CRITIC_MODEL, ANSWER_SYSTEM_PROMPT, user_prompt, temperature=0.3)
 
 
 # ============================================================================
@@ -126,7 +126,7 @@ def evaluate_faithfulness(question: str, answer: str, contexts: list[str]) -> di
 请输出纯JSON:
 {{"score": <0.0到1.0>, "hallucination_count": <整数>, "total_claims": <整数>, "reasoning": "<1-2句中评语>"}}"""
 
-    result_str = call_llm(JUDGE_MODEL, EVAL_SYSTEM_PROMPT, user_prompt, temperature=0.0)
+    result_str = call_llm(CRITIC_MODEL, EVAL_SYSTEM_PROMPT, user_prompt, temperature=0.0)
     # 清洗可能的 markdown 包裹
     result_str = result_str.strip()
     if result_str.startswith("```"):
@@ -163,7 +163,7 @@ def evaluate_answer_relevancy(question: str, answer: str) -> dict:
 请输出纯JSON:
 {{"score": <0.0到1.0>, "covered_points": <覆盖的信息点数>, "total_points": <问题总信息点数>, "reasoning": "<1-2句中评语>"}}"""
 
-    result_str = call_llm(JUDGE_MODEL, EVAL_SYSTEM_PROMPT, user_prompt, temperature=0.0)
+    result_str = call_llm(CRITIC_MODEL, EVAL_SYSTEM_PROMPT, user_prompt, temperature=0.0)
     result_str = result_str.strip()
     if result_str.startswith("```"):
         result_str = result_str.split("\n", 1)[-1].rsplit("```", 1)[0]
@@ -202,7 +202,7 @@ def evaluate_context_precision(question: str, contexts: list[str]) -> dict:
 请输出纯JSON:
 {{"score": <0.0到1.0>, "relevant_count": <相关片段数>, "total_documents": {len(contexts)}, "reasoning": "<1-2句中评语>"}}"""
 
-    result_str = call_llm(JUDGE_MODEL, EVAL_SYSTEM_PROMPT, user_prompt, temperature=0.0)
+    result_str = call_llm(CRITIC_MODEL, EVAL_SYSTEM_PROMPT, user_prompt, temperature=0.0)
     result_str = result_str.strip()
     if result_str.startswith("```"):
         result_str = result_str.split("\n", 1)[-1].rsplit("```", 1)[0]
@@ -244,7 +244,7 @@ def evaluate_context_recall(question: str, contexts: list[str], ground_truth: st
 请输出纯JSON:
 {{"score": <0.0到1.0>, "covered_points": <被覆盖信息点数>, "total_points": <参考答案总信息点数>, "missing_info": ["缺失的信息1", "缺失的信息2"], "reasoning": "<1-2句中评语>"}}"""
 
-    result_str = call_llm(JUDGE_MODEL, EVAL_SYSTEM_PROMPT, user_prompt, temperature=0.0)
+    result_str = call_llm(CRITIC_MODEL, EVAL_SYSTEM_PROMPT, user_prompt, temperature=0.0)
     result_str = result_str.strip()
     if result_str.startswith("```"):
         result_str = result_str.split("\n", 1)[-1].rsplit("```", 1)[0]
@@ -314,7 +314,7 @@ def main():
     console.rule("[bold blue]DeepReason 检索质量评估 (4 指标)")
     console.print(f"Embedding 模型: {EMBEDDING_MODEL_NAME}")
     console.print(f"HyDE: {'[yellow]禁用[/]' if args.no_hyde else '[green]启用[/]'}")
-    console.print(f"评估 LLM: {JUDGE_MODEL}")
+    console.print(f"评估 LLM: {CRITIC_MODEL}")
 
     questions = load_questions(args.questions)
     if args.limit > 0:
@@ -508,7 +508,7 @@ def main():
             "hyde_enabled": not args.no_hyde,
             "final_top_k": FINAL_TOP_K,
             "num_questions": len(questions),
-            "eval_llm": JUDGE_MODEL,
+            "eval_llm": CRITIC_MODEL,
         },
         "summary": avg_scores,
         "custom_metrics": {

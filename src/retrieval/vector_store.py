@@ -20,6 +20,7 @@ from pymilvus import (
     FieldSchema,
     MilvusClient,
 )
+from pymilvus.milvus_client import IndexParams
 
 from config.settings import (
     MILVUS_HOST,
@@ -213,7 +214,15 @@ def create_collection(drop_if_exists: bool = False) -> str:
         if drop_if_exists:
             client.drop_collection(MILVUS_COLLECTION)
         else:
-            client.load_collection(MILVUS_COLLECTION)
+            try:
+                client.load_collection(MILVUS_COLLECTION)
+            except Exception as e:
+                if "index not found" in str(e).lower():
+                    raise RuntimeError(
+                        f"Collection '{MILVUS_COLLECTION}' 已存在但没有向量索引，"
+                        f"可能是上次构建中断导致。请使用 --drop-existing 参数重建。"
+                    ) from e
+                raise
             return MILVUS_COLLECTION
 
     schema = get_child_collection_schema()
@@ -223,14 +232,15 @@ def create_collection(drop_if_exists: bool = False) -> str:
     )
 
     # 稠密向量索引（IVF_FLAT + COSINE）
-    index_params = {
-        "index_type": "IVF_FLAT",
-        "metric_type": "COSINE",
-        "params": {"nlist": 128},
-    }
+    index_params = IndexParams()
+    index_params.add_index(
+        field_name="dense_vector",
+        index_type="IVF_FLAT",
+        metric_type="COSINE",
+        params={"nlist": 128},
+    )
     client.create_index(
         collection_name=MILVUS_COLLECTION,
-        field_name="dense_vector",
         index_params=index_params,
     )
 

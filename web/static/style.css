@@ -1,0 +1,179 @@
+/* DeepReason Web UI — 深色终端风 */
+:root {
+  --bg: #0f1117;
+  --panel: #171a23;
+  --card: #1d2130;
+  --border: #2a2f42;
+  --text: #d8dce8;
+  --dim: #8a90a5;
+  --accent: #5b8cff;
+  --green: #3ddc84;
+  --yellow: #f5c542;
+  --red: #ff5d6c;
+  --cyan: #4dd8e0;
+  --purple: #b388ff;
+  --mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  line-height: 1.6;
+}
+
+/* ── 头部 ── */
+header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  position: sticky; top: 0; z-index: 10;
+}
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.logo { font-size: 22px; }
+.brand h1 { font-size: 20px; letter-spacing: 1px; }
+.sub { color: var(--dim); font-size: 13px; }
+.status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dim); }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.dot.gray { background: #555; }
+
+/* ── Tabs ── */
+.tabs { display: flex; gap: 6px; padding: 14px 28px 0; }
+.tab {
+  background: transparent; color: var(--dim); border: 1px solid var(--border);
+  border-bottom: none; padding: 9px 20px; border-radius: 8px 8px 0 0;
+  cursor: pointer; font-size: 14px;
+}
+.tab.active { background: var(--card); color: var(--text); border-color: var(--accent); }
+
+main { padding: 20px 28px 60px; max-width: 1100px; margin: 0 auto; }
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ── 查询框 ── */
+.query-box {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px; margin-bottom: 18px;
+}
+#query-input {
+  width: 100%; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; font-size: 14px; resize: vertical;
+  font-family: var(--mono);
+}
+#query-input:focus { outline: none; border-color: var(--accent); }
+.query-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.btn {
+  background: var(--card); color: var(--text); border: 1px solid var(--border);
+  padding: 7px 18px; border-radius: 7px; cursor: pointer; font-size: 13px;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.examples { color: var(--dim); font-size: 12px; }
+.examples a { color: var(--cyan); cursor: pointer; margin-right: 8px; text-decoration: underline dotted; }
+
+/* ── 时间线 ── */
+.timeline { margin: 8px 0; }
+.node-card {
+  position: relative; background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 16px 12px 20px; margin: 0 0 12px 18px;
+}
+.node-card::before {
+  content: ""; position: absolute; left: -18px; top: 0; bottom: 0;
+  width: 2px; background: var(--border);
+}
+.node-card .node-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.node-card .node-icon { font-size: 16px; }
+.node-card .node-name { font-weight: 600; font-size: 14px; }
+.node-card .node-meta { color: var(--dim); font-size: 12px; margin-left: auto; }
+.node-card .node-body { font-size: 13.5px; color: var(--text); }
+.node-card.pulse { border-color: var(--accent); animation: pulse 1s infinite; }
+@keyframes pulse { 50% { border-color: var(--cyan); } }
+
+/* 徽章 */
+.badge {
+  display: inline-block; padding: 2px 10px; border-radius: 20px;
+  font-size: 12px; font-weight: 600; margin-right: 6px;
+}
+.badge.accept, .badge.supported, .badge.resolved { background: rgba(61,220,132,.15); color: var(--green); }
+.badge.revise, .badge.unsupported, .badge.pending { background: rgba(245,197,66,.15); color: var(--yellow); }
+.badge.reject, .badge.contradicted, .badge.failed { background: rgba(255,93,108,.15); color: var(--red); }
+.badge.conf { background: rgba(91,140,255,.15); color: var(--accent); }
+.badge.dim { background: rgba(138,144,165,.12); color: var(--dim); }
+
+/* issue 列表 */
+.issue { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 6px 0; background: var(--bg); }
+.issue .issue-claim { font-weight: 500; }
+.issue .issue-ev { color: var(--dim); font-size: 12px; margin-top: 2px; }
+.issue .issue-ev em { color: var(--cyan); font-style: normal; }
+
+/* 文档 chips */
+.docs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.doc-chip {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 3px 10px; font-size: 12px; color: var(--dim);
+  max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.doc-chip .score { color: var(--accent); margin-left: 4px; }
+
+/* 答案文本 */
+.answer-text {
+  white-space: pre-wrap; font-size: 14px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px; margin: 10px 0;
+}
+details.raw { margin-top: 8px; }
+details.raw summary { color: var(--dim); cursor: pointer; font-size: 12px; }
+pre.raw-output {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px; font-size: 12px; overflow-x: auto; color: var(--dim);
+  max-height: 260px; overflow-y: auto;
+}
+
+/* ── 结果区 ── */
+.result { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+.result-title { font-size: 15px; margin-bottom: 8px; }
+.badges { margin-bottom: 4px; }
+.annotations { font-size: 13px; color: var(--yellow); margin: 6px 0; }
+.sources { margin-top: 10px; }
+.sources summary { color: var(--dim); cursor: pointer; font-size: 13px; }
+.sources .src-item {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 12px; margin-top: 6px; font-size: 12.5px;
+  color: var(--dim); max-height: 120px; overflow-y: auto;
+}
+
+/* ── Eval 面板 ── */
+.eval-toolbar { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+#eval-select {
+  background: var(--card); color: var(--text); border: 1px solid var(--border);
+  border-radius: 7px; padding: 6px 12px; font-size: 13px; min-width: 300px;
+}
+.summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.s-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.s-card .k { color: var(--dim); font-size: 12px; }
+.s-card .v { font-size: 20px; font-weight: 700; margin-top: 2px; }
+.s-card .v.good { color: var(--green); } .s-card .v.bad { color: var(--red); }
+.s-card .v.neutral { color: var(--yellow); }
+
+table.eval-table {
+  width: 100%; border-collapse: collapse; font-size: 12.5px;
+  background: var(--card); border-radius: 10px; overflow: hidden;
+}
+.eval-table th, .eval-table td {
+  padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: center;
+}
+.eval-table th { background: var(--panel); color: var(--dim); font-weight: 600; }
+.eval-table td.num { font-family: var(--mono); }
+.eval-table tr:hover td { background: rgba(91,140,255,.05); }
+.eval-table .col-group { color: var(--dim); font-size: 11px; }
+td.diff-up { color: var(--green); } td.diff-down { color: var(--red); }
+
+.hidden { display: none; }
+.muted { color: var(--dim); font-size: 13px; padding: 20px 0; }

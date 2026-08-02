@@ -4,7 +4,7 @@
 不狡辩、不编造、不遗漏——每个修改必须有文献依据。
 """
 
-from config.settings import ADVOCATE_MODEL
+from config.settings import REVISER_MODEL
 from src.utils.llm import call_llm
 
 # ============================================================================
@@ -93,7 +93,7 @@ def call_reviser(
 请按审稿意见逐条修订。按 status 分类处理（unsupported→删除或标注、contradicted→用文献原文替换、missing→补充）。每处修改标注 [来源 N]。不要修改审稿意见未涉及的段落。"""
 
     return call_llm(
-        model_name=ADVOCATE_MODEL,
+        model_name=REVISER_MODEL,
         system_prompt=REVISER_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         temperature=0.3,
